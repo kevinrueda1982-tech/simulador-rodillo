@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grofadora industrial de película</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #f1f0ed; font-family: Arial, sans-serif; }
+    #panel {
+      position: absolute; top: 16px; left: 16px; z-index: 1;
+      padding: 14px; background: #ffffffdd; border-radius: 10px;
+      box-shadow: 0 2px 12px #0002;
+    }
+    button { padding: 9px 14px; cursor: pointer; }
+    #estado { margin-top: 8px; font-size: 13px; color: #333; }
+    #ayuda { font-size: 12px; color: #555; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div id="panel">
+    <strong>Grofadora industrial de película</strong><br><br>
+    <button id="boton">Repetir montaje</button>
+    <div id="estado" role="status" aria-live="polite">Montando las piezas…</div>
+    <div id="ayuda">Arrastra para orbitar 360°; usa la rueda para zoom.</div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf1f0ed);
+
+    const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100);
+    camera.position.set(14, 10, 12);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enableRotate = true;
+    controls.minPolarAngle = 0.001;
+    controls.maxPolarAngle = Math.PI - 0.001;
+    controls.target.set(0, 2, 0);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x777777, 2));
+    const light = new THREE.DirectionalLight(0xffffff, 3);
+    light.position.set(4, 8, 6);
+    light.castShadow = true;
+    light.shadow.mapSize.set(2048, 2048);
+    light.shadow.camera.left = -7;
+    light.shadow.camera.right = 7;
+    light.shadow.camera.top = 7;
+    light.shadow.camera.bottom = -7;
+    light.shadow.bias = -0.00015;
+    scene.add(light);
+
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(200, 200),
+      new THREE.MeshStandardMaterial({ color: 0xf1f0ed, roughness: 1 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -2.2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    const machine = new THREE.Group();
+    // Pone el eje del rodillo en horizontal, como en la operación real.
+    machine.rotation.z = Math.PI / 2;
+    machine.position.y = 5;
+    scene.add(machine);
+
+    const assembly = new THREE.Group();
+    machine.add(assembly);
+
+    const metal = new THREE.MeshStandardMaterial({
+      color: 0x9ba2a7, metalness: 0.55, roughness: 0.26
+    });
+    const darkMetal = new THREE.MeshStandardMaterial({
+      color: 0x42494e, metalness: 0.65, roughness: 0.28
+    });
+    const gold = new THREE.MeshStandardMaterial({
+      color: 0xd5a329, metalness: 0.68, roughness: 0.25
+    });
+    const sleeveMetal = new THREE.MeshStandardMaterial({
+      color: 0x7f888e, metalness: 0.72, roughness: 0.24,
+      side: THREE.DoubleSide
+    });
+    const sleeveInnerMetal = new THREE.MeshStandardMaterial({
+      color: 0x343b40, metalness: 0.68, roughness: 0.3,
+      side: THREE.DoubleSide
+    });
+    const blue = new THREE.MeshStandardMaterial({
+      color: 0x1765b4, metalness: 0.48, roughness: 0.24,
+      side: THREE.DoubleSide
+    });
+    const darkBlue = new THREE.MeshStandardMaterial({
+      color: 0x103f73, metalness: 0.4, roughness: 0.34,
+      side: THREE.DoubleSide
+    });
+    const motorCasing = new THREE.MeshStandardMaterial({
+      color: 0x174c69, metalness: 0.38, roughness: 0.32
+    });
+    const motorDark = new THREE.MeshStandardMaterial({
+      color: 0x202a30, metalness: 0.58, roughness: 0.3
+    });
+    const starterRed = new THREE.MeshStandardMaterial({ color: 0xc84434, roughness: 0.35 });
+    const starterGreen = new THREE.MeshStandardMaterial({ color: 0x39a85a, roughness: 0.35 });
+
+    function verticalCylinder(radius, length, material, y, x = 0, segments = 64) {
+      const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(radius, radius, length, segments),
+        material
+      );
+      mesh.position.set(x, y, 0);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      assembly.add(mesh);
+      return mesh;
+    }
+
+    // Cuerpo del rodillo y eje inferior angosto para montar las piezas.
+    const bodyLength = 5.0;
+    const bodyRadius = 0.72;
+    const barRadius = 0.38;
+    const boreRadius = 0.415;
+    const outerRadius = bodyRadius;
+    verticalCylinder(bodyRadius, bodyLength, metal, 0, 0, 96);
+    verticalCylinder(barRadius, 0.55, darkMetal, 2.775);
+    verticalCylinder(0.13, 2.7, darkMetal, 4.4);
+    verticalCylinder(barRadius, 2.28, darkMetal, -3.64);
+    verticalCylinder(0.13, 0.9, darkMetal, -5.23);
+
+    // Estrías de ajuste visibles en los tramos expuestos del eje inferior.
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      const rail = verticalCylinder(0.014, 2.28, gold, -3.64, 0, 32);
+      rail.position.x = 0.392 * Math.cos(a);
+      rail.position.z = 0.392 * Math.sin(a);
+    }
+
+    // Camisa sujetadora hueca.
+    const sleeve = new THREE.Group();
+    assembly.add(sleeve);
+    sleeve.visible = false;
+
+    const sleeveLength = 1.64;
+    const ringWidth = 0.64;
+    const ringCenterY = -(bodyLength / 2 + ringWidth / 2);
+    const sleeveCenterY = -(bodyLength / 2 + ringWidth + sleeveLength / 2);
+    const markingTrackX = -ringCenterY;
+    const shaftEndY = -5.68;
+    const ringStartY = shaftEndY - ringWidth / 2;
+    const sleeveStartY = ringStartY - (ringWidth + sleeveLength) / 2;
+    const sleeveOuter = new THREE.Mesh(
+      new THREE.CylinderGeometry(outerRadius, outerRadius, sleeveLength, 96, 1, true), sleeveMetal
+    );
+    sleeveOuter.castShadow = true;
+    sleeve.add(sleeveOuter);
+
+    const sleeveInner = new THREE.Mesh(
+      new THREE.CylinderGeometry(boreRadius, boreRadius, sleeveLength, 96, 1, true), sleeveInnerMetal
+    );
+    sleeve.add(sleeveInner);
+
+    // Caras y rebordes mecanizados que dejan visible el espesor de la camisa.
+    for (const x of [-sleeveLength / 2, sleeveLength / 2]) {
+      const lip = new THREE.Mesh(
+        new THREE.RingGeometry(boreRadius, outerRadius, 96), sleeveMetal
+      );
+      lip.rotation.x = Math.PI / 2;
+      lip.position.y = x;
+      sleeve.add(lip);
+
+      const rim = new THREE.Mesh(
+        new THREE.TorusGeometry(outerRadius - 0.012, 0.012, 10, 96), sleeveInnerMetal
+      );
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = x;
+      sleeve.add(rim);
+    }
+    sleeve.position.set(0, sleeveStartY, 0);
+
+    // Anillo de marcación hueco.
+    const ring = new THREE.Group();
+    assembly.add(ring);
+    ring.visible = false;
+
+    const markingCanvas = document.createElement('canvas');
+    markingCanvas.width = 1024;
+    markingCanvas.height = 256;
+    const markingContext = markingCanvas.getContext('2d');
+    if (!markingContext) {
+      throw new Error('No se pudo crear la textura del grabado ANLA.');
+    }
+    const markingGradient = markingContext.createLinearGradient(0, 0, 0, markingCanvas.height);
+    markingGradient.addColorStop(0, '#1b6bb7');
+    markingGradient.addColorStop(0.5, '#125293');
+    markingGradient.addColorStop(1, '#1b6bb7');
+    markingContext.fillStyle = markingGradient;
+    markingContext.fillRect(0, 0, markingCanvas.width, markingCanvas.height);
+    markingContext.textAlign = 'center';
+    markingContext.textBaseline = 'middle';
+    markingContext.font = 'bold 160px Arial, sans-serif';
+    markingContext.lineJoin = 'round';
+    for (const x of [128, 640]) {
+      markingContext.fillStyle = 'rgba(126, 177, 229, 0.72)';
+      markingContext.fillText('ANLA', x, 116);
+      markingContext.fillStyle = '#08294e';
+      markingContext.fillText('ANLA', x, 140);
+    }
+    const markingTexture = new THREE.CanvasTexture(markingCanvas);
+    markingTexture.colorSpace = THREE.SRGBColorSpace;
+    const engravedBlue = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: markingTexture,
+      metalness: 0.48,
+      roughness: 0.3,
+      side: THREE.DoubleSide
+    });
+    const ringOuter = new THREE.Mesh(
+      new THREE.CylinderGeometry(outerRadius, outerRadius, ringWidth, 128, 1, true), engravedBlue
+    );
+    ringOuter.castShadow = true;
+    ring.add(ringOuter);
+
+    const ringInner = new THREE.Mesh(
+      new THREE.CylinderGeometry(boreRadius, boreRadius, ringWidth, 96, 1, true), darkBlue
+    );
+    ring.add(ringInner);
+
+    for (const x of [-ringWidth / 2, ringWidth / 2]) {
+      const face = new THREE.Mesh(
+        new THREE.RingGeometry(boreRadius, outerRadius, 96), blue
+      );
+      face.rotation.x = Math.PI / 2;
+      face.position.y = x;
+      ring.add(face);
+
+      const rim = new THREE.Mesh(
+        new THREE.TorusGeometry(outerRadius - 0.012, 0.012, 10, 96), darkBlue
+      );
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = x;
+      ring.add(rim);
+    }
+    ring.position.set(0, ringStartY, 0);
+
+    const pressureRoller = new THREE.Group();
+    pressureRoller.position.set(-(2 * outerRadius + 0.012), -(ringWidth + sleeveLength) / 2, 0);
+    pressureRoller.position.z = 2.4;
+    pressureRoller.visible = false;
+    machine.add(pressureRoller);
+    const pressureLength = bodyLength + ringWidth + sleeveLength;
+    const pressureBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(outerRadius, outerRadius, pressureLength, 96), metal
+    );
+    pressureBody.castShadow = true;
+    pressureBody.receiveShadow = true;
+    pressureRoller.add(pressureBody);
+    const pressureAxleLength = 0.9;
+    for (const end of [-1, 1]) {
+      const axle = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.13, 0.13, pressureAxleLength, 64), darkMetal
+      );
+      axle.position.y = end * (pressureLength / 2 + pressureAxleLength / 2);
+      axle.castShadow = true;
+      pressureRoller.add(axle);
+    }
+
+    const bearingSystem = new THREE.Group();
+    bearingSystem.position.z = 2.2;
+    bearingSystem.visible = false;
+    machine.add(bearingSystem);
+    const bearingMetal = new THREE.MeshStandardMaterial({
+      color: 0x92999e, metalness: 0.72, roughness: 0.24
+    });
+
+    function frameBox(size, position, material = metal) {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
+      box.position.set(...position);
+      box.castShadow = true;
+      box.receiveShadow = true;
+      bearingSystem.add(box);
+      return box;
+    }
+
+    const frameRailX = -2.1;
+    const frameRailZ = 0.68;
+    const frameRailLength = 13;
+    for (const side of [-1, 1]) {
+      frameBox(
+        [0.18, frameRailLength, 0.18],
+        [frameRailX, 0.75, side * frameRailZ],
+        bearingMetal
+      );
+    }
+    for (const end of [-1, 1]) {
+      frameBox(
+        [0.18, 0.18, 1.54],
+        [frameRailX, end < 0 ? -5.75 : 7.25, 0],
+        bearingMetal
+      );
+    }
+
+    function addBearingSupport(radialCenter, axialCenter) {
+      const support = new THREE.Group();
+      support.position.set(radialCenter, axialCenter, 0);
+      bearingSystem.add(support);
+
+      const raceWidth = 0.36;
+      const raceOuter = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.34, 0.34, raceWidth, 64, 1, true), bearingMetal
+      );
+      raceOuter.castShadow = true;
+      support.add(raceOuter);
+
+      const raceInner = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.16, 0.16, raceWidth, 64, 1, true), darkMetal
+      );
+      support.add(raceInner);
+
+      for (const end of [-1, 1]) {
+        const face = new THREE.Mesh(
+          new THREE.RingGeometry(0.16, 0.34, 64), bearingMetal
+        );
+        face.rotation.x = Math.PI / 2;
+        face.position.y = end * raceWidth / 2;
+        support.add(face);
+      }
+
+      for (const side of [-1, 1]) {
+        const upright = new THREE.Mesh(
+          new THREE.BoxGeometry(0.14, 0.42, 1.08), bearingMetal
+        );
+        upright.position.x = side * 0.47;
+        support.add(upright);
+
+        const crossbar = new THREE.Mesh(
+          new THREE.BoxGeometry(0.82, 0.42, 0.14), bearingMetal
+        );
+        crossbar.position.z = side * 0.47;
+        support.add(crossbar);
+      }
+
+      const supportBottom = radialCenter - 0.54;
+      const railTop = frameRailX + 0.09;
+      const legLength = Math.max(0, supportBottom - railTop);
+      if (legLength > 0) {
+        for (const side of [-1, 1]) {
+          const leg = new THREE.Mesh(
+            new THREE.BoxGeometry(legLength, 0.2, 0.16), bearingMetal
+          );
+          leg.position.set(
+            (supportBottom + railTop) / 2,
+            axialCenter,
+            side * 0.47
+          );
+          bearingSystem.add(leg);
+        }
+      }
+    }
+
+    addBearingSupport(0, 5.25);
+    addBearingSupport(0, -5.23);
+    addBearingSupport(
+      pressureRoller.position.x,
+      pressureRoller.position.y + pressureLength / 2 + pressureAxleLength / 2
+    );
+    addBearingSupport(
+      pressureRoller.position.x,
+      pressureRoller.position.y - pressureLength / 2 - pressureAxleLength / 2
+    );
+
+    const driveSystem = new THREE.Group();
+    driveSystem.position.y = 8.5;
+    driveSystem.visible = false;
+    machine.add(driveSystem);
+    const motorBodyLength = 1.4;
+    const motorBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.42, 0.42, motorBodyLength, 64), motorCasing
+    );
+    motorBody.castShadow = true;
+    driveSystem.add(motorBody);
+    for (const y of [-0.48, -0.24, 0, 0.24, 0.48]) {
+      const fin = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.46, 0.46, 0.07, 64), motorDark
+      );
+      fin.position.y = y;
+      driveSystem.add(fin);
+    }
+    for (const end of [-1, 1]) {
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.43, 0.43, 0.12, 64), motorDark
+      );
+      cap.position.y = end * (motorBodyLength / 2 + 0.04);
+      driveSystem.add(cap);
+    }
+    const coupling = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.22, 0.22, 0.34, 48), darkMetal
+    );
+    coupling.position.y = -0.86;
+    driveSystem.add(coupling);
+    const motorMount = new THREE.Mesh(
+      new THREE.BoxGeometry(1.4, 1.5, 0.82), bearingMetal
+    );
+    motorMount.position.set(-1.25, 0, 0);
+    driveSystem.add(motorMount);
+    const starterBox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.48, 0.52, 0.4), motorCasing
+    );
+    starterBox.position.set(0.5, 0.12, 0);
+    driveSystem.add(starterBox);
+    const starterButton = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.1, 0.1, 0.1, 32), starterRed
+    );
+    starterButton.rotation.z = Math.PI / 2;
+    starterButton.position.set(0.8, 0.12, 0);
+    driveSystem.add(starterButton);
+    const runningButton = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.1, 0.1, 0.1, 32), starterGreen
+    );
+    runningButton.rotation.z = Math.PI / 2;
+    runningButton.position.copy(starterButton.position);
+    runningButton.visible = false;
+    driveSystem.add(runningButton);
+
+    const filmCanvas = document.createElement('canvas');
+    filmCanvas.width = 512;
+    filmCanvas.height = 128;
+    const filmContext = filmCanvas.getContext('2d');
+    if (!filmContext) {
+      throw new Error('No se pudo crear la textura de la película.');
+    }
+    filmContext.fillStyle = 'rgba(74, 190, 218, 0.76)';
+    filmContext.fillRect(0, 0, filmCanvas.width, filmCanvas.height);
+    filmContext.textAlign = 'center';
+    filmContext.textBaseline = 'middle';
+    filmContext.font = 'bold 24px Arial, sans-serif';
+    filmContext.fillStyle = 'rgba(8, 41, 78, 0.9)';
+    const filmLength = 9.4;
+    const filmWidth = pressureLength - 0.12;
+    const filmCenterX = -pressureRoller.position.y;
+    const imprintX = ((markingTrackX - filmCenterX + filmWidth / 2) / filmWidth) * filmCanvas.width;
+    filmContext.save();
+    filmContext.translate(imprintX, filmCanvas.height / 2);
+    filmContext.rotate(Math.PI / 2);
+    filmContext.fillText('ANLA', 0, 0);
+    filmContext.restore();
+    const rollerAngularSpeed = 1.4;
+    const filmTexture = new THREE.CanvasTexture(filmCanvas);
+    filmTexture.colorSpace = THREE.SRGBColorSpace;
+    filmTexture.wrapT = THREE.RepeatWrapping;
+    filmTexture.repeat.y = filmLength / (Math.PI * outerRadius);
+    const film = new THREE.Mesh(
+      new THREE.PlaneGeometry(filmWidth, filmLength),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: filmTexture,
+        transparent: true,
+        opacity: 0.7,
+        roughness: 0.3,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      })
+    );
+    film.rotation.x = -Math.PI / 2;
+    film.position.set(filmCenterX, machine.position.y - outerRadius - 0.006, -6);
+    film.visible = false;
+    scene.add(film);
+
+    const industrialMachine = new THREE.Group();
+    industrialMachine.visible = false;
+    scene.add(industrialMachine);
+
+    const factoryFrameMaterial = new THREE.MeshStandardMaterial({
+      color: 0xc3c5c2, metalness: 0.58, roughness: 0.3
+    });
+    const safetyBlue = new THREE.MeshStandardMaterial({
+      color: 0x07569a, metalness: 0.48, roughness: 0.28
+    });
+    const safetyYellow = new THREE.MeshStandardMaterial({
+      color: 0xf0b521, metalness: 0.18, roughness: 0.44
+    });
+    const cabinetMaterial = new THREE.MeshStandardMaterial({
+      color: 0xd8d8d2, metalness: 0.2, roughness: 0.48
+    });
+    const operatorSkin = new THREE.MeshStandardMaterial({ color: 0xc9875b, roughness: 0.78 });
+    const operatorNavy = new THREE.MeshStandardMaterial({ color: 0x263e56, roughness: 0.68 });
+    const operatorOrange = new THREE.MeshStandardMaterial({ color: 0xf07824, roughness: 0.62 });
+    const operatorLime = new THREE.MeshStandardMaterial({ color: 0xd7e64b, roughness: 0.62 });
+    const operatorHelmet = new THREE.MeshStandardMaterial({
+      color: 0xf4c928, metalness: 0.06, roughness: 0.36
+    });
+    const operatorBoots = new THREE.MeshStandardMaterial({ color: 0x24292d, roughness: 0.72 });
+    const woundFilmMaterial = new THREE.MeshStandardMaterial({
+      color: 0x58b8cc, metalness: 0.08, roughness: 0.3
+    });
+
+    function factoryBox(size, position, material = factoryFrameMaterial) {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
+      box.position.set(...position);
+      box.castShadow = true;
+      box.receiveShadow = true;
+      industrialMachine.add(box);
+      return box;
+    }
+
+    function factoryPipeBetween(start, end, radius, material) {
+      const startPoint = new THREE.Vector3(...start);
+      const endPoint = new THREE.Vector3(...end);
+      const direction = endPoint.clone().sub(startPoint);
+      const pipe = new THREE.Mesh(
+        new THREE.CylinderGeometry(radius, radius, direction.length(), 16), material
+      );
+      pipe.position.copy(startPoint).add(endPoint).multiplyScalar(0.5);
+      pipe.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+      pipe.castShadow = true;
+      pipe.receiveShadow = true;
+      industrialMachine.add(pipe);
+      return pipe;
+    }
+
+    function factoryAxialRoller(radius, length, position, material, segments = 64) {
+      const roller = new THREE.Mesh(
+        new THREE.CylinderGeometry(radius, radius, length, segments), material
+      );
+      roller.rotation.z = Math.PI / 2;
+      roller.position.set(...position);
+      roller.castShadow = true;
+      roller.receiveShadow = true;
+      industrialMachine.add(roller);
+      return roller;
+    }
+
+    function factoryDrivenRoller(radius, length, position, material) {
+      const drive = new THREE.Group();
+      drive.position.set(...position);
+      industrialMachine.add(drive);
+      const roller = new THREE.Mesh(
+        new THREE.CylinderGeometry(radius, radius, length, 64), material
+      );
+      roller.rotation.z = Math.PI / 2;
+      roller.castShadow = true;
+      roller.receiveShadow = true;
+      drive.add(roller);
+      return drive;
+    }
+
+    const frameXMin = -6.5;
+    const frameXMax = 5.8;
+    const frameCenterX = (frameXMin + frameXMax) / 2;
+    const frameWidth = frameXMax - frameXMin;
+    const frameSideZ = 2.1;
+    const frameBottomY = -2.1;
+    const frameTopY = 6.15;
+    const frameHeight = frameTopY - frameBottomY;
+    const frameCenterY = (frameTopY + frameBottomY) / 2;
+    for (const x of [frameXMin, frameXMax]) {
+      for (const z of [-frameSideZ, frameSideZ]) {
+        factoryBox([0.24, frameHeight, 0.24], [x, frameCenterY, z]);
+      }
+      factoryBox([0.22, 0.22, frameSideZ * 2], [x, frameBottomY, 0]);
+      factoryBox([0.18, 0.18, frameSideZ * 2], [x, 3.05, 0], safetyBlue);
+      factoryBox([0.18, 0.18, frameSideZ * 2], [x, frameTopY, 0], safetyBlue);
+    }
+    for (const z of [-frameSideZ, frameSideZ]) {
+      factoryBox([frameWidth, 0.22, 0.22], [frameCenterX, frameBottomY, z]);
+      factoryBox([frameWidth, 0.16, 0.16], [frameCenterX, 5.15, z], safetyBlue);
+      factoryBox([frameWidth, 0.16, 0.16], [frameCenterX, frameTopY, z], safetyBlue);
+      factoryPipeBetween([frameXMin, 5.62, z], [frameXMax, 5.62, z], 0.055, safetyBlue);
+      for (let x = frameXMin + 1.4; x < frameXMax; x += 2.4) {
+        factoryPipeBetween([x, 5.15, z], [x, frameTopY, z], 0.035, safetyBlue);
+      }
+      factoryPipeBetween(
+        [frameXMin, frameBottomY + 0.2, z],
+        [frameXMin + 3.2, 2.75, z],
+        0.065,
+        factoryFrameMaterial
+      );
+      factoryPipeBetween(
+        [frameXMax, frameBottomY + 0.2, z],
+        [frameXMax - 3.2, 2.75, z],
+        0.065,
+        factoryFrameMaterial
+      );
+    }
+    factoryBox([frameWidth, 0.16, frameSideZ * 1.8], [frameCenterX, 2.78, 0]);
+    for (const z of [-frameSideZ + 0.14, frameSideZ - 0.14]) {
+      factoryBox([frameWidth - 0.5, 0.035, 0.045], [frameCenterX, 2.89, z], safetyYellow);
+    }
+
+    const stairAngle = 0.36;
+    const stairBottom = { x: 6.15, y: -1.9 };
+    const stairTop = { x: 4.45, y: 2.68 };
+    const stairLength = Math.hypot(stairTop.x - stairBottom.x, stairTop.y - stairBottom.y);
+    const stairCenter = {
+      x: (stairTop.x + stairBottom.x) / 2,
+      y: (stairTop.y + stairBottom.y) / 2
+    };
+    for (const z of [2.35, 3.2]) {
+      const stringer = factoryBox(
+        [0.15, stairLength, 0.15], [stairCenter.x, stairCenter.y, z], safetyBlue
+      );
+      stringer.rotation.z = stairAngle;
+      factoryPipeBetween(
+        [stairBottom.x - 0.18, stairBottom.y + 1.05, z],
+        [stairTop.x - 0.18, stairTop.y + 1.05, z],
+        0.06,
+        safetyBlue
+      );
+      for (let post = 0; post <= 4; post++) {
+        const p = post / 4;
+        const x = THREE.MathUtils.lerp(stairBottom.x, stairTop.x, p) - 0.18;
+        const y = THREE.MathUtils.lerp(stairBottom.y, stairTop.y, p);
+        factoryPipeBetween([x, y + 0.12, z], [x, y + 1.05, z], 0.035, safetyBlue);
+      }
+    }
+    for (let step = 0; step < 9; step++) {
+      const p = (step + 0.5) / 9;
+      const stepX = THREE.MathUtils.lerp(stairBottom.x, stairTop.x, p);
+      const stepY = THREE.MathUtils.lerp(stairBottom.y, stairTop.y, p);
+      factoryBox(
+        [1.15, 0.12, 0.72],
+        [stepX, stepY, 2.78],
+        factoryFrameMaterial
+      );
+      factoryBox([1.02, 0.025, 0.035], [stepX, stepY + 0.066, 3.15], safetyYellow);
+    }
+
+    factoryBox([0.9, 2.1, 0.72], [7, -1.05, 0.75], cabinetMaterial);
+    factoryBox([0.66, 0.94, 0.035], [7, -0.75, 1.13], motorDark);
+    const controlDisplayCanvas = document.createElement('canvas');
+    controlDisplayCanvas.width = 256;
+    controlDisplayCanvas.height = 160;
+    const controlDisplayContext = controlDisplayCanvas.getContext('2d');
+    if (!controlDisplayContext) {
+      throw new Error('No se pudo crear la pantalla del panel de control.');
+    }
+    controlDisplayContext.fillStyle = '#092331';
+    controlDisplayContext.fillRect(0, 0, 256, 160);
+    controlDisplayContext.fillStyle = '#63e1c4';
+    controlDisplayContext.font = 'bold 25px Arial, sans-serif';
+    controlDisplayContext.fillText('ANLA LINE', 18, 38);
+    controlDisplayContext.font = '18px Arial, sans-serif';
+    controlDisplayContext.fillStyle = '#d7f6f0';
+    controlDisplayContext.fillText('RODILLO  OK', 18, 76);
+    controlDisplayContext.fillText('VELOCIDAD  42', 18, 109);
+    controlDisplayContext.fillStyle = '#4be0a4';
+    controlDisplayContext.fillRect(18, 128, 210, 8);
+    const controlDisplayTexture = new THREE.CanvasTexture(controlDisplayCanvas);
+    controlDisplayTexture.colorSpace = THREE.SRGBColorSpace;
+    const controlDisplay = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.5, 0.26),
+      new THREE.MeshBasicMaterial({ map: controlDisplayTexture })
+    );
+    controlDisplay.position.set(7, -0.48, 1.17);
+    industrialMachine.add(controlDisplay);
+    for (let buttonIndex = 0; buttonIndex < 4; buttonIndex++) {
+      const control = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.075, 0.075, 0.08, 24),
+        buttonIndex === 0 ? starterRed : buttonIndex === 1 ? starterGreen : safetyBlue
+      );
+      control.rotation.x = Math.PI / 2;
+      control.position.set(6.78 + (buttonIndex % 2) * 0.28, -0.79 - Math.floor(buttonIndex / 2) * 0.24, 1.19);
+      control.castShadow = true;
+      industrialMachine.add(control);
+    }
+    const emergencyStop = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.12, 0.1, 32), starterRed
+    );
+    emergencyStop.rotation.x = Math.PI / 2;
+    emergencyStop.position.set(7.14, -1.38, 1.19);
+    industrialMachine.add(emergencyStop);
+
+    function addOperator(position, vestMaterial, facing = 0) {
+      const operator = new THREE.Group();
+      operator.position.set(...position);
+      operator.rotation.y = facing;
+      industrialMachine.add(operator);
+
+      function limb(start, end, radius, material) {
+        const from = new THREE.Vector3(...start);
+        const to = new THREE.Vector3(...end);
+        const direction = to.clone().sub(from);
+        const mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(radius * 0.82, radius, direction.length(), 12), material
+        );
+        mesh.position.copy(from).add(to).multiplyScalar(0.5);
+        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        operator.add(mesh);
+      }
+
+      function capsule(radius, length, material, x, y, z) {
+        const mesh = new THREE.Mesh(
+          new THREE.CapsuleGeometry(radius, length, 5, 14), material
+        );
+        mesh.position.set(x, y, z);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        operator.add(mesh);
+        return mesh;
+      }
+
+      capsule(0.23, 0.38, operatorNavy, 0, 1.28, 0);
+      capsule(0.245, 0.36, vestMaterial, 0, 1.31, 0.035);
+      capsule(0.18, 0.18, operatorNavy, 0, 0.91, 0);
+
+      for (const side of [-1, 1]) {
+        limb([side * 0.13, 0.94, 0], [side * 0.16, 0.48, 0.01], 0.1, operatorNavy);
+        limb([side * 0.16, 0.48, 0.01], [side * 0.18, 0.12, 0.04], 0.085, operatorNavy);
+        const boot = new THREE.Mesh(
+          new THREE.BoxGeometry(0.22, 0.12, 0.32), operatorBoots
+        );
+        boot.position.set(side * 0.18, 0.08, 0.1);
+        boot.castShadow = true;
+        operator.add(boot);
+
+        limb([side * 0.22, 1.55, 0], [side * 0.39, 1.27, 0.06], 0.085, vestMaterial);
+        limb([side * 0.39, 1.27, 0.06], [side * 0.42, 1.16, 0.23], 0.07, operatorNavy);
+        const glove = new THREE.Mesh(
+          new THREE.SphereGeometry(0.085, 16, 12), operatorBoots
+        );
+        glove.position.set(side * 0.42, 1.13, 0.25);
+        operator.add(glove);
+
+        const reflectiveStripe = new THREE.Mesh(
+          new THREE.BoxGeometry(0.035, 0.52, 0.025), operatorLime
+        );
+        reflectiveStripe.position.set(side * 0.12, 1.31, 0.235);
+        operator.add(reflectiveStripe);
+      }
+
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.18, 24, 16), operatorSkin
+      );
+      head.position.set(0, 1.83, 0.015);
+      head.castShadow = true;
+      operator.add(head);
+      const helmetBrim = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.24, 0.24, 0.045, 32), operatorHelmet
+      );
+      helmetBrim.position.y = 1.97;
+      operator.add(helmetBrim);
+      const helmetDome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.205, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+        operatorHelmet
+      );
+      helmetDome.position.y = 1.98;
+      helmetDome.castShadow = true;
+      operator.add(helmetDome);
+      const glasses = new THREE.Mesh(
+        new THREE.BoxGeometry(0.25, 0.045, 0.028), motorDark
+      );
+      glasses.position.set(0, 1.85, 0.17);
+      operator.add(glasses);
+      return operator;
+    }
+
+    addOperator([8.15, frameBottomY, 1.85], operatorOrange, -Math.PI / 2);
+    addOperator([-5.25, 2.86, 1.35], operatorLime, Math.PI / 4);
+
+    const machineLabelCanvas = document.createElement('canvas');
+    machineLabelCanvas.width = 512;
+    machineLabelCanvas.height = 128;
+    const machineLabelContext = machineLabelCanvas.getContext('2d');
+    if (!machineLabelContext) {
+      throw new Error('No se pudo crear la placa de identificacion de la maquina.');
+    }
+    machineLabelContext.fillStyle = '#0a4b7c';
+    machineLabelContext.fillRect(0, 0, 512, 128);
+    machineLabelContext.fillStyle = '#f2f7fa';
+    machineLabelContext.font = 'bold 42px Arial, sans-serif';
+    machineLabelContext.fillText('ANLA  /  FILM LINE', 24, 58);
+    machineLabelContext.font = '22px Arial, sans-serif';
+    machineLabelContext.fillStyle = '#b8d7e8';
+    machineLabelContext.fillText('MARKING AND WINDING SYSTEM', 24, 96);
+    const machineLabel = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.7, 0.43),
+      new THREE.MeshBasicMaterial({
+        map: new THREE.CanvasTexture(machineLabelCanvas),
+        side: THREE.DoubleSide
+      })
+    );
+    machineLabel.position.set(-4.3, 5.86, frameSideZ + 0.02);
+    industrialMachine.add(machineLabel);
+
+    const bubbleCenterX = filmCenterX;
+    const bubbleCenterZ = -4.3;
+    const bubbleBaseY = -1.52;
+    const bubbleTopY = machine.position.y - outerRadius - 0.006;
+    const bubbleHeight = bubbleTopY - bubbleBaseY;
+    const bubbleBaseRadius = 0.5;
+    // For a flattened tube, the web width is approximately pi times the bubble radius.
+    const bubbleRadius = filmWidth / Math.PI;
+
+    function bubbleRadiusAt(progress) {
+      const expansion = THREE.MathUtils.clamp(progress / 0.26, 0, 1);
+      const eased = expansion * expansion * (3 - 2 * expansion);
+      return THREE.MathUtils.lerp(bubbleBaseRadius, bubbleRadius, eased);
+    }
+
+    function createBubbleGeometry(radialSegments, heightSegments) {
+      const positions = [];
+      const uvs = [];
+      const indices = [];
+      for (let row = 0; row <= heightSegments; row++) {
+        const progress = row / heightSegments;
+        const radius = bubbleRadiusAt(progress);
+        for (let segment = 0; segment <= radialSegments; segment++) {
+          const angle = (Math.PI * 2 * segment) / radialSegments;
+          positions.push(radius * Math.cos(angle), bubbleHeight * progress, radius * Math.sin(angle));
+          uvs.push(segment / radialSegments, progress);
+          if (row < heightSegments && segment < radialSegments) {
+            const first = row * (radialSegments + 1) + segment;
+            const nextRow = first + radialSegments + 1;
+            indices.push(first, first + 1, nextRow, first + 1, nextRow + 1, nextRow);
+          }
+        }
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      return geometry;
+    }
+
+    const bubbleAssembly = new THREE.Group();
+    bubbleAssembly.position.set(bubbleCenterX, bubbleBaseY, bubbleCenterZ);
+    industrialMachine.add(bubbleAssembly);
+    const bubbleSurfaceMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0xb7f4f4,
+      transparent: true,
+      opacity: 0.42,
+      roughness: 0.12,
+      metalness: 0,
+      clearcoat: 0.9,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const bubbleSurface = new THREE.Mesh(createBubbleGeometry(96, 42), bubbleSurfaceMaterial);
+    bubbleSurface.castShadow = false;
+    bubbleAssembly.add(bubbleSurface);
+
+    const bubbleHighlightMaterial = new THREE.MeshBasicMaterial({
+      color: 0x9cf7ff, transparent: true, opacity: 0.92
+    });
+    for (const angle of [0.65, 1.05, 1.5, 1.95, 2.35]) {
+      const points = [];
+      for (let row = 0; row <= 18; row++) {
+        const progress = row / 18;
+        const radius = bubbleRadiusAt(progress) + 0.018;
+        points.push(new THREE.Vector3(
+          radius * Math.cos(angle),
+          bubbleHeight * progress,
+          radius * Math.sin(angle)
+        ));
+      }
+      const highlight = new THREE.Mesh(
+        new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 48, 0.028, 8, false),
+        bubbleHighlightMaterial
+      );
+      bubbleAssembly.add(highlight);
+    }
+    const bubbleHoopMaterial = new THREE.MeshStandardMaterial({
+      color: 0x62bfc8,
+      metalness: 0.3,
+      roughness: 0.4,
+      transparent: true,
+      opacity: 0.76
+    });
+    for (const progress of [0.38, 0.56, 0.74, 0.92]) {
+      const hoop = new THREE.Mesh(
+        new THREE.TorusGeometry(bubbleRadiusAt(progress), 0.03, 8, 72),
+        bubbleHoopMaterial
+      );
+      hoop.rotation.x = Math.PI / 2;
+      hoop.position.y = bubbleHeight * progress;
+      bubbleAssembly.add(hoop);
+    }
+
+    const dieBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.58, 0.58, 0.18, 64), darkMetal
+    );
+    dieBase.position.set(bubbleCenterX, bubbleBaseY - 0.05, bubbleCenterZ);
+    dieBase.castShadow = true;
+    industrialMachine.add(dieBase);
+    const dieLip = new THREE.Mesh(
+      new THREE.TorusGeometry(0.54, 0.045, 12, 64), gold
+    );
+    dieLip.rotation.x = Math.PI / 2;
+    dieLip.position.set(bubbleCenterX, bubbleBaseY + 0.055, bubbleCenterZ);
+    industrialMachine.add(dieLip);
+    factoryAxialRoller(
+      0.14, 3.5,
+      [bubbleCenterX - 0.72, bubbleBaseY + 0.1, bubbleCenterZ], motorDark
+    );
+    factoryAxialRoller(
+      0.29, 4.7,
+      [bubbleCenterX + 2.35, bubbleBaseY + 0.12, bubbleCenterZ], darkMetal
+    );
+    factoryBox(
+      [0.78, 0.75, 0.72],
+      [bubbleCenterX + 4.55, bubbleBaseY + 0.12, bubbleCenterZ],
+      factoryFrameMaterial
+    );
+    factoryAxialRoller(
+      0.34, 0.86,
+      [bubbleCenterX + 5.1, bubbleBaseY + 0.12, bubbleCenterZ], motorDark
+    );
+    factoryAxialRoller(
+      0.39, 0.07,
+      [bubbleCenterX + 4.72, bubbleBaseY + 0.12, bubbleCenterZ], safetyBlue
+    );
+    const hopper = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.54, 0.18, 1.02, 36, 1, true), factoryFrameMaterial
+    );
+    hopper.position.set(bubbleCenterX + 3.15, bubbleBaseY + 0.93, bubbleCenterZ);
+    hopper.castShadow = true;
+    industrialMachine.add(hopper);
+    const hopperRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.52, 0.035, 10, 48), safetyBlue
+    );
+    hopperRim.rotation.x = Math.PI / 2;
+    hopperRim.position.set(bubbleCenterX + 3.15, bubbleBaseY + 1.45, bubbleCenterZ);
+    industrialMachine.add(hopperRim);
+    const hopperNeck = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.18, 0.3, 32), darkMetal
+    );
+    hopperNeck.position.set(bubbleCenterX + 3.15, bubbleBaseY + 0.28, bubbleCenterZ);
+    industrialMachine.add(hopperNeck);
+    const blowerCenterX = bubbleCenterX - 3.55;
+    factoryAxialRoller(
+      0.48, 0.82,
+      [blowerCenterX, bubbleBaseY + 0.1, bubbleCenterZ], safetyBlue
+    );
+    factoryAxialRoller(
+      0.4, 0.08,
+      [blowerCenterX + 0.46, bubbleBaseY + 0.1, bubbleCenterZ], darkMetal
+    );
+    factoryAxialRoller(
+      0.16, 3.0,
+      [bubbleCenterX - 1.86, bubbleBaseY + 0.1, bubbleCenterZ], motorDark
+    );
+    for (let spoke = 0; spoke < 8; spoke++) {
+      const angle = (Math.PI * 2 * spoke) / 8;
+      factoryPipeBetween(
+        [blowerCenterX + 0.52, bubbleBaseY + 0.1 + 0.12 * Math.cos(angle), bubbleCenterZ + 0.12 * Math.sin(angle)],
+        [blowerCenterX + 0.52, bubbleBaseY + 0.1 + 0.37 * Math.cos(angle), bubbleCenterZ + 0.37 * Math.sin(angle)],
+        0.014,
+        factoryFrameMaterial
+      );
+    }
+    const bubblePullTop = factoryDrivenRoller(
+      0.17, filmWidth + 0.12,
+      [bubbleCenterX, bubbleTopY + 0.15, bubbleCenterZ], metal
+    );
+    const bubblePullBottom = factoryDrivenRoller(
+      0.17, filmWidth + 0.12,
+      [bubbleCenterX, bubbleTopY - 0.15, bubbleCenterZ], darkMetal
+    );
+    for (const side of [-1, 1]) {
+      factoryPipeBetween(
+        [bubbleCenterX + side * bubbleRadius, bubbleTopY - 0.92, bubbleCenterZ],
+        [bubbleCenterX + side * filmWidth / 2, bubbleTopY - 0.12, bubbleCenterZ],
+        0.055,
+        safetyBlue
+      );
+    }
+
+    const windingCenterX = filmCenterX;
+    const windingCenterY = -1.18;
+    const windingCenterZ = 3.14;
+    const windingRadius = 0.86;
+    const windingCoreRadius = 0.18;
+    const windingWidth = filmWidth - 0.4;
+    const windingAxisLength = filmWidth + 1.1;
+    factoryAxialRoller(
+      0.12, windingAxisLength,
+      [windingCenterX, windingCenterY, windingCenterZ], darkMetal
+    );
+    const windingSupportsX = [
+      windingCenterX - filmWidth / 2 - 0.38,
+      windingCenterX + filmWidth / 2 + 0.38
+    ];
+    for (const x of windingSupportsX) {
+      factoryBox([0.24, 1.95, 0.34], [x, -1.12, windingCenterZ]);
+      factoryBox([0.32, 0.18, 0.72], [x, frameBottomY + 0.12, windingCenterZ]);
+    }
+
+    const windingCoil = new THREE.Group();
+    windingCoil.position.set(windingCenterX, windingCenterY, windingCenterZ);
+    industrialMachine.add(windingCoil);
+    const coilBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(windingRadius, windingRadius, windingWidth, 96),
+      woundFilmMaterial
+    );
+    coilBody.rotation.z = Math.PI / 2;
+    coilBody.castShadow = true;
+    coilBody.receiveShadow = true;
+    windingCoil.add(coilBody);
+    for (const side of [-1, 1]) {
+      const flange = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.96, 0.96, 0.12, 64), safetyBlue
+      );
+      flange.rotation.z = Math.PI / 2;
+      flange.position.x = side * (windingWidth / 2 + 0.08);
+      flange.castShadow = true;
+      windingCoil.add(flange);
+    }
+
+    function createWindingWrapGeometry(width, radius, segments) {
+      const positions = [];
+      const uvs = [];
+      const indices = [];
+      for (let segment = 0; segment <= segments; segment++) {
+        const angle = Math.PI / 2 + (Math.PI * segment) / segments;
+        for (const side of [-1, 1]) {
+          positions.push(side * width / 2, radius * Math.cos(angle), radius * Math.sin(angle));
+          uvs.push(side < 0 ? 0 : 1, segment / segments);
+        }
+        if (segment < segments) {
+          const first = segment * 2;
+          indices.push(first, first + 1, first + 2, first + 1, first + 3, first + 2);
+        }
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      return geometry;
+    }
+
+    const windingWrap = new THREE.Mesh(
+      createWindingWrapGeometry(windingWidth, windingRadius + 0.018, 48),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: filmTexture,
+        transparent: true,
+        opacity: 0.72,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        roughness: 0.32
+      })
+    );
+    windingCoil.add(windingWrap);
+    windingCoil.scale.set(1, windingCoreRadius / windingRadius, windingCoreRadius / windingRadius);
+
+    const guideRoll = new THREE.Group();
+    guideRoll.position.set(windingCenterX, windingCenterY, 1.92);
+    industrialMachine.add(guideRoll);
+    const guideRollBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.34, 0.34, windingWidth + 0.2, 64), metal
+    );
+    guideRollBody.rotation.z = Math.PI / 2;
+    guideRollBody.castShadow = true;
+    guideRollBody.receiveShadow = true;
+    guideRoll.add(guideRollBody);
+
+    const dropTopY = machine.position.y - outerRadius - 0.006;
+    const dropHeight = dropTopY - windingCenterY;
+    const filmDrop = new THREE.Mesh(
+      new THREE.PlaneGeometry(filmWidth, dropHeight),
+      film.material
+    );
+    filmDrop.position.set(
+      windingCenterX,
+      dropTopY - dropHeight / 2,
+      windingCenterZ + windingCoreRadius + 0.025
+    );
+    filmDrop.scale.y = 0;
+    filmDrop.visible = false;
+    industrialMachine.add(filmDrop);
+
+    const status = document.getElementById('estado');
+    const button = document.getElementById('boton');
+    let startTime = performance.now();
+    let previousFrame = startTime;
+
+    function restart() {
+      startTime = performance.now();
+      previousFrame = startTime;
+      assembly.rotation.x = 0;
+      assembly.rotation.y = 0;
+      assembly.rotation.z = 0;
+      ring.visible = false;
+      ring.position.set(0, ringStartY, 0);
+      sleeve.visible = false;
+      sleeve.position.set(0, sleeveStartY, 0);
+      pressureRoller.visible = false;
+      pressureRoller.position.z = 2.4;
+      pressureRoller.rotation.y = 0;
+      film.visible = false;
+      film.position.z = -6;
+      filmTexture.offset.y = 0;
+      bearingSystem.visible = false;
+      bearingSystem.position.z = 2.2;
+      driveSystem.visible = false;
+      driveSystem.position.y = 8.5;
+      starterButton.visible = true;
+      runningButton.visible = false;
+      industrialMachine.visible = false;
+      filmDrop.visible = false;
+      filmDrop.scale.y = 0;
+      filmDrop.position.y = dropTopY;
+      filmDrop.position.z = windingCenterZ + windingCoreRadius + 0.025;
+      windingCoil.scale.set(1, windingCoreRadius / windingRadius, windingCoreRadius / windingRadius);
+      windingCoil.rotation.set(0, 0, 0);
+      status.textContent = 'Montando el rodillo base…';
+    }
+    button.addEventListener('click', restart);
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+      const delta = Math.min((now - previousFrame) / 1000, 0.05);
+      previousFrame = now;
+      const t = (now - startTime) / 1000;
+
+      if (t < 1.2) {
+        status.textContent = 'Montando el rodillo base sin anillo ni camisa…';
+      } else if (t < 3.7) {
+        const p = (t - 1.2) / 2.5;
+        const eased = p * p * (3 - 2 * p);
+        ring.visible = true;
+        ring.position.x = 0;
+        ring.position.y = THREE.MathUtils.lerp(ringStartY, ringCenterY, eased);
+        status.textContent = 'Insertando el anillo azul en el eje…';
+      } else if (t < 6.2) {
+        const p = (t - 3.7) / 2.5;
+        const eased = p * p * (3 - 2 * p);
+        ring.position.x = 0;
+        ring.position.y = ringCenterY;
+        sleeve.visible = true;
+        sleeve.position.x = 0;
+        sleeve.position.y = THREE.MathUtils.lerp(sleeveStartY, sleeveCenterY, eased);
+        status.textContent = 'Insertando la camisa por separado…';
+      } else if (t < 8.7) {
+        sleeve.position.y = sleeveCenterY;
+        pressureRoller.visible = true;
+        const p = (t - 6.2) / 2.5;
+        const eased = p * p * (3 - 2 * p);
+        pressureRoller.position.z = THREE.MathUtils.lerp(2.4, 0, eased);
+        status.textContent = 'Colocando el rodillo de presión debajo…';
+      } else if (t < 10.7) {
+        pressureRoller.position.z = 0;
+        film.visible = true;
+        const p = (t - 8.7) / 2;
+        const eased = p * p * (3 - 2 * p);
+        film.position.z = THREE.MathUtils.lerp(-6, 0, eased);
+        status.textContent = 'Enhebrando la película entre los rodillos…';
+      } else if (t < 12.7) {
+        film.position.z = 0;
+        bearingSystem.visible = true;
+        const p = (t - 10.7) / 2;
+        const eased = p * p * (3 - 2 * p);
+        bearingSystem.position.z = THREE.MathUtils.lerp(2.2, 0, eased);
+        status.textContent = 'Montando rodamientos y soportes en los ejes…';
+      } else if (t < 14.7) {
+        bearingSystem.position.z = 0;
+        driveSystem.visible = true;
+        const p = (t - 12.7) / 2;
+        const eased = p * p * (3 - 2 * p);
+        driveSystem.position.y = THREE.MathUtils.lerp(8.5, 6.65, eased);
+        status.textContent = 'Acoplando el motor y el sistema de arranque…';
+      } else {
+        pressureRoller.visible = true;
+        pressureRoller.position.z = 0;
+        film.visible = true;
+        film.position.z = 0;
+        bearingSystem.visible = true;
+        bearingSystem.position.z = 0;
+        driveSystem.visible = true;
+        driveSystem.position.y = 6.65;
+        starterButton.visible = false;
+        runningButton.visible = true;
+        sleeve.position.x = 0;
+        sleeve.position.y = sleeveCenterY;
+        ring.position.x = 0;
+        ring.position.y = ringCenterY;
+        assembly.rotation.y = (t - 14.7) * rollerAngularSpeed;
+        pressureRoller.rotation.y = -(t - 14.7) * rollerAngularSpeed;
+        // El patrón avanza a la velocidad tangencial del rodillo en el punto de contacto.
+        filmTexture.offset.y = (filmTexture.offset.y
+          + delta * (rollerAngularSpeed * outerRadius / filmLength)) % 1;
+        industrialMachine.visible = true;
+        const machineRunTime = t - 14.7;
+        const inflationProgress = THREE.MathUtils.clamp(machineRunTime / 4.5, 0, 1);
+        const inflationEase = inflationProgress * inflationProgress * (3 - 2 * inflationProgress);
+        const bubbleBreath = Math.sin(machineRunTime * 1.4) * 0.008;
+        const bubbleScale = 0.78 + 0.22 * inflationEase + bubbleBreath;
+        bubbleAssembly.scale.set(bubbleScale, 1, bubbleScale);
+        bubblePullTop.rotation.x = machineRunTime * 0.82;
+        bubblePullBottom.rotation.x = -machineRunTime * 0.82;
+
+        if (t < 16.2) {
+          status.textContent = 'Integrando el equipo de soplado y el marcado en la cima…';
+        } else {
+          const p = THREE.MathUtils.clamp((t - 16.2) / 3, 0, 1);
+          const eased = p * p * (3 - 2 * p);
+          const currentRadius = THREE.MathUtils.lerp(windingCoreRadius, windingRadius, eased);
+          filmDrop.visible = true;
+          filmDrop.scale.y = eased;
+          filmDrop.position.y = dropTopY - dropHeight * eased / 2;
+          filmDrop.position.z = windingCenterZ + currentRadius + 0.025;
+          windingCoil.scale.set(1, currentRadius / windingRadius, currentRadius / windingRadius);
+          windingCoil.rotation.x = -(t - 16.2) * 0.45;
+          guideRoll.rotation.x = (t - 16.2) * 0.55;
+          status.textContent = t < 19.2
+            ? 'La burbuja se expande; la película plana baja al embobinador…'
+            : 'Burbuja inflada: película marcada y formando el rollo.';
+        }
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    requestAnimationFrame(animate);
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+  </script>
+</body>
+</html>
